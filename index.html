@@ -581,6 +581,20 @@ tbody tr{transition:background 0.12s;}
         <div class="metric-sub" id="subjectSub">—</div>
       </div>
     </div>
+    <!-- SUMMARY AI INSIGHTS CARD -->
+    <div id="summaryAiCard" style="display:none; background:linear-gradient(135deg, rgba(74,40,0,0.05) 0%, rgba(245,200,66,0.14) 100%); border:1.5px solid var(--accent-md); border-left:4px solid var(--gold-mid); border-radius:var(--radius); padding:18px 24px; box-shadow:var(--shadow-sm); animation:slideIn 0.3s cubic-bezier(.22,1,.36,1);">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:16px;">✨</span>
+          <span style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:var(--gold-dark);">Department & Student Voice Executive Summary</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span id="summaryAiPill" style="font-size:10.5px; font-weight:600; padding:2px 9px; border-radius:20px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">⚡ Stored Summary</span>
+          <button onclick="document.getElementById('navNps').click()" style="background:none; border:none; font-size:11.5px; font-weight:600; color:var(--accent); cursor:pointer; font-family:var(--font-body); text-decoration:underline; text-underline-offset:2px;">View full NPS breakdown →</button>
+        </div>
+      </div>
+      <div id="summaryAiText" style="font-size:13.5px; line-height:1.75; color:var(--ink); font-weight:450;">Loading insights…</div>
+    </div>
     <div class="charts-grid">
       <div class="card">
         <div class="card-header">
@@ -1889,8 +1903,48 @@ tbody tr{transition:background 0.12s;}
   }
   function render() {
     renderMetricCards();
+    renderSummaryAiInsight();
     renderNPSSummary();
     renderMentorChart();
+  }
+  function renderSummaryAiInsight() {
+    const card = document.getElementById("summaryAiCard");
+    const textEl = document.getElementById("summaryAiText");
+    const pill = document.getElementById("summaryAiPill");
+    if (!card || !state.currentCollege) return;
+    const collegeName = state.currentCollege.name;
+    const monthKey = selectedMonth || ALL_MONTHS;
+    const cacheStorageKey = `fp_sv_summary_v2_${encodeURIComponent(collegeName)}_${monthKey}`;
+    try {
+      const cachedRaw = localStorage.getItem(cacheStorageKey);
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw);
+        if (cached && cached.executiveSummary) {
+          card.style.display = "block";
+          textEl.textContent = cached.executiveSummary;
+          pill.textContent = "⚡ Stored Summary (Up to date)";
+          pill.style.background = "#d1fae5";
+          pill.style.color = "#065f46";
+          pill.style.borderColor = "#6ee7b7";
+          return;
+        }
+      }
+    } catch(e) {}
+    
+    // If not cached, trigger generation in background if rows exist
+    if (metrics && metrics.rawRows && metrics.rawRows.length > 0) {
+      metrics3 = metrics;
+      selectedMonth3 = selectedMonth;
+      card.style.display = "block";
+      textEl.textContent = "Synthesizing real-time department feedback via Gemini AI…";
+      pill.textContent = "✦ Generating…";
+      pill.style.background = "#fef3c7";
+      pill.style.color = "#78350f";
+      pill.style.borderColor = "#fcd34d";
+      runStudentVoice(false).catch(() => {});
+    } else {
+      card.style.display = "none";
+    }
   }
   function renderMetricCards() {
     const { tableData, mentors, deptList, rawRows } = metrics;
@@ -2549,31 +2603,36 @@ tbody tr{transition:background 0.12s;}
     const monthKey = selectedMonth3 || ALL_MONTHS;
     const cacheStorageKey = `fp_sv_summary_v2_${encodeURIComponent(collegeName)}_${monthKey}`;
 
-    // Extract department-tagged qualitative feedback (Columns M & N: challenges_detail, challenges_suggestions + Q6, Q7)
+    // Extract department-tagged qualitative feedback (Columns L, M, N, T, U: category, challenges_detail, challenges_suggestions, likes, improve)
     const deptFeedbackMap = [];
     const q6List = [], q7List = [];
-    const ignoreSet = new Set(["nil", "null", "na", "n/a", "no", "none", "nothing", "good", "all good", "fine", "everything is fine", "no issues", "no comments", "everything is good", "no challenges", ".", "-", "--", "no suggestions"]);
+    const ignoreSet = new Set(["nil", "null", "na", "n/a", "no", "none", "nothing", "good", "all good", "fine", "everything is fine", "no issues", "no comments", "everything is good", "no challenges", ".", "-", "--", "no suggestions", "ntg"]);
 
     rows.forEach((row) => {
-      const dept = (row.department || row["Department"] || row["dept"] || "General").trim();
       const keys = Object.keys(row);
+      const dept = (row["department"] || row["Department"] || row["dept"] || row[keys[5]] || "General").trim();
+
+      // Col L (challenges_selected)
+      const lKey = keys.find(k => /challenges_selected|category|area/i.test(k)) || keys[11];
+      const lVal = (lKey && row[lKey] ? String(row[lKey]).trim() : "");
 
       // Col M (challenges_detail)
-      const mKey = keys.find(k => /challenges_detail|challenge|issue|problem/i.test(k)) || keys[12];
+      const mKey = keys.find(k => /challenges_detail|challenge.*detail|issue|problem/i.test(k)) || keys[12];
       const mVal = (mKey && row[mKey] ? String(row[mKey]).trim() : "");
 
       // Col N (challenges_suggestions)
-      const nKey = keys.find(k => /challenges_suggestions|suggestion|recommendation|improve/i.test(k)) || keys[13];
+      const nKey = keys.find(k => /challenges_suggestions|suggestion|recommendation/i.test(k)) || keys[13];
       const nVal = (nKey && row[nKey] ? String(row[nKey]).trim() : "");
 
-      // Q6 / Likes
-      const q6Key = keys.find(k => /nps_likes|q6|like about/i.test(k));
+      // Col T / Q6 (Likes)
+      const q6Key = keys.find(k => /nps_likes|q6|like about/i.test(k)) || keys[19];
       const q6Val = (q6Key && row[q6Key] ? String(row[q6Key]).trim() : "");
 
-      // Q7 / Improve
-      const q7Key = keys.find(k => /nps_improve|q7|what.*improve|one thing/i.test(k));
+      // Col U / Q7 (Improve)
+      const q7Key = keys.find(k => /nps_improve|q7|what.*improve|one thing/i.test(k)) || keys[20];
       const q7Val = (q7Key && row[q7Key] ? String(row[q7Key]).trim() : "");
 
+      const hasCategory = lVal && !ignoreSet.has(lVal.toLowerCase()) && lVal !== "No Challenges";
       const hasM = mVal && !ignoreSet.has(mVal.toLowerCase()) && mVal.length > 3;
       const hasN = nVal && !ignoreSet.has(nVal.toLowerCase()) && nVal.length > 3;
       const hasQ6 = q6Val && !ignoreSet.has(q6Val.toLowerCase()) && q6Val.length > 3;
@@ -2582,9 +2641,10 @@ tbody tr{transition:background 0.12s;}
       if (hasQ6) q6List.push(q6Val);
       if (hasQ7) q7List.push(q7Val);
 
-      if (hasM || hasN || hasQ6 || hasQ7) {
+      if (hasM || hasN || hasQ6 || hasQ7 || hasCategory) {
         deptFeedbackMap.push({
           dept,
+          category: hasCategory ? lVal : "",
           challenge: hasM ? mVal : "",
           suggestion: hasN ? nVal : (hasQ7 ? q7Val : ""),
           like: hasQ6 ? q6Val : ""
@@ -2643,6 +2703,7 @@ tbody tr{transition:background 0.12s;}
 
     const formattedInputs = sampleItems.map((item, idx) => {
       let line = `${idx + 1}. [Dept: ${item.dept || "General"}]`;
+      if (item.category) line += ` | Category: "${item.category}"`;
       if (item.like) line += ` | Liked: "${item.like}"`;
       if (item.challenge) line += ` | Challenge Faced: "${item.challenge}"`;
       if (item.suggestion) line += ` | Suggestion: "${item.suggestion}"`;
@@ -2791,6 +2852,21 @@ Rules:
       metaEl.textContent = `${totalCount} student responses analyzed \xB7 ${fromCache ? 'Loaded from local cache' : 'Generated via Gemini 3.6 Flash'} at ${timeStr}`;
     }
     
+    // Also sync to summary panel card
+    const summaryCard = document.getElementById("summaryAiCard");
+    const summaryText = document.getElementById("summaryAiText");
+    const summaryPill = document.getElementById("summaryAiPill");
+    if (summaryCard && summaryText) {
+      summaryCard.style.display = "block";
+      summaryText.textContent = executiveSummary;
+      if (summaryPill) {
+        summaryPill.textContent = fromCache ? "⚡ Stored Summary (Up to date)" : "✦ Newly Generated";
+        summaryPill.style.background = fromCache ? "#d1fae5" : "#fef3c7";
+        summaryPill.style.color = fromCache ? "#065f46" : "#78350f";
+        summaryPill.style.borderColor = fromCache ? "#6ee7b7" : "#fcd34d";
+      }
+    }
+
     document.getElementById("svRegenBtn").style.display = "inline-block";
     document.getElementById("svBadge").textContent = `${totalCount} Responses Analyzed`;
     svShow("result");
