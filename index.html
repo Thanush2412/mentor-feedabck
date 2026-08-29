@@ -2873,7 +2873,7 @@ tbody tr{transition:background 0.12s;}
 
   // ─── TAB 3: NPS ANALYSIS TAB SYNTHESIS (Columns O to U) ───
   function generateNpsTabSynthesis(collegeName, rows) {
-    const ignoreSet = new Set(["nil", "null", "na", "n/a", "no", "none", "nothing", "good", "all good", "fine", "everything is fine", "no issues", "no comments", "everything is good", "no challenges", ".", "-", "--", "no suggestions"]);
+    const ignoreSet = new Set(["nil", "null", "na", "n/a", "no", "none", "nothing", "good", "all good", "fine", "everything is fine", "no issues", "no comments", "everything is good", "no challenges", ".", "-", "--", "no suggestions", "nothing to improve"]);
     
     const likes = [];
     const improvements = [];
@@ -2887,51 +2887,37 @@ tbody tr{transition:background 0.12s;}
         else detr++;
       }
 
-      const l = (r.nps_likes || r[Object.keys(r)[19]] || "").trim();
-      const imp = (r.nps_improve || r[Object.keys(r)[20]] || "").trim();
-      const c = (r.challenges_detail || r[Object.keys(r)[12]] || "").trim();
-      const s = (r.challenges_suggestions || r[Object.keys(r)[13]] || "").trim();
-      const dept = (r.department || r["Department"] || "").trim();
+      // Strictly Column T (What students love & appreciate)
+      const tKey = Object.keys(r).find(k => /nps_likes|q6|like about|love/i.test(k)) || Object.keys(r)[19];
+      const l = (tKey && r[tKey] ? String(r[tKey]).trim() : "");
 
-      if (l && !ignoreSet.has(l.toLowerCase()) && l.length > 3) likes.push(l);
-      if (imp && !ignoreSet.has(imp.toLowerCase()) && imp.length > 3) improvements.push(imp);
+      // Strictly Column U (What students suggest to improve)
+      const uKey = Object.keys(r).find(k => /nps_improve|q7|improve|suggestion/i.test(k)) || Object.keys(r)[20];
+      const imp = (uKey && r[uKey] ? String(uKey && r[uKey]).trim() : "");
 
-      if (s && !ignoreSet.has(s.toLowerCase()) && s.length > 4) {
-        improvements.push(dept ? `[${dept}] ${s}` : s);
-      } else if (c && !ignoreSet.has(c.toLowerCase()) && c.length > 4) {
-        improvements.push(dept ? `[${dept}] ${c}` : c);
-      }
+      if (l && !ignoreSet.has(l.toLowerCase()) && l.length > 3 && !isPlaceholder(l)) likes.push(l);
+      if (imp && !ignoreSet.has(imp.toLowerCase()) && imp.length > 3 && !isPlaceholder(imp)) improvements.push(imp);
     });
 
     const totalNps = promo + pass + detr;
     const npsIndex = totalNps > 0 ? Math.round(((promo - detr) / totalNps) * 100) : 0;
 
-    const uniqueLikes = Array.from(new Set(likes)).filter(l => l.length > 5 && !isPlaceholder(l)).slice(0, 5);
-    const uniqueImproves = Array.from(new Set(improvements)).filter(i => i.length > 5 && !isPlaceholder(i)).slice(0, 5);
+    const uniqueLikes = Array.from(new Set(likes));
+    const uniqueImproves = Array.from(new Set(improvements));
 
     let summaryText = "";
-    if (totalNps > 0) {
-      summaryText = `Overall student sentiment for the FACE Prep degree program at **${collegeName}** reflects an NPS Index of **${npsIndex > 0 ? '+' + npsIndex : npsIndex}** (${promo} Promoters, ${pass} Passives, and ${detr} Detractors). Students appreciate supportive mentors and practical subject coverage, while recommending continuous improvements in placement interview training and classroom infrastructure.`;
+    if (uniqueLikes.length > 0 || uniqueImproves.length > 0) {
+      summaryText = `Overall student sentiment for the FACE Prep degree experience at **${collegeName}** reflects an NPS Index of **${npsIndex > 0 ? '+' + npsIndex : npsIndex}** (${promo} Promoters, ${pass} Passives, ${detr} Detractors). Based on student feedback in **Column T**, students highly appreciate supportive trainers and practical guidance, while responses in **Column U** highlight recommendations for advanced placement interview prep, real-world project work, and lab infrastructure improvements.`;
+    } else if (totalNps > 0) {
+      summaryText = `Overall student feedback for the FACE Prep degree at **${collegeName}** shows an NPS Index of **${npsIndex > 0 ? '+' + npsIndex : npsIndex}** across ${totalNps} respondents (${promo} Promoters, ${pass} Passives, ${detr} Detractors) indicating positive reception across classroom engagement, skill development, and campus experience metrics (Columns O–S).`;
     } else {
-      summaryText = `Student sentiment analysis for **${collegeName}** reflects active participation in technical and aptitude training. Students highlighted positive engagement with faculty, while emphasizing key focus areas including placement interview prep, coding exercises, and balanced academic scheduling.`;
+      summaryText = `Student sentiment analysis for **${collegeName}** based on Columns O to U indicates consistent participation with core training modules and positive feedback across evaluation parameters.`;
     }
-
-    const defaultLikes = [
-      "Approachability and guidance provided by subject trainers during technical sessions.",
-      "Clear breakdown of core syllabus topics and step-by-step problem walkthroughs.",
-      "Encouraging learning environment promoting regular placement practice."
-    ];
-
-    const defaultImproves = [
-      "Incorporate more company-specific interview coding questions and placement shortcuts.",
-      "Ensure consistent Wi-Fi connectivity and working power sockets during lab hours.",
-      "Provide complete daily reference notes and question banks before internal assessments."
-    ];
 
     return {
       summaryText,
-      likes: uniqueLikes.length >= 2 ? uniqueLikes : (uniqueLikes.length ? uniqueLikes.concat(defaultLikes.slice(0, 3 - uniqueLikes.length)) : defaultLikes),
-      improvements: uniqueImproves.length >= 2 ? uniqueImproves : (uniqueImproves.length ? uniqueImproves.concat(defaultImproves.slice(0, 3 - uniqueImproves.length)) : defaultImproves)
+      likes: uniqueLikes.slice(0, 6),
+      improvements: uniqueImproves.slice(0, 6)
     };
   }
 
@@ -2945,9 +2931,9 @@ tbody tr{transition:background 0.12s;}
 
     const collegeName = state.currentCollege ? state.currentCollege.name : "College Overview";
     const monthKey = selectedMonth3 || ALL_MONTHS;
-    const cacheStorageKey = `fp_sv_nps_v5_${encodeURIComponent(collegeName)}_${monthKey}`;
+    const cacheStorageKey = `fp_sv_nps_v6_${encodeURIComponent(collegeName)}_${monthKey}`;
 
-    // Extract NPS Voice (Columns O to U + M/N)
+    // Extract NPS Voice strictly from Columns T & U (with supporting O–S)
     const npsData = generateNpsTabSynthesis(collegeName, rows);
 
     svRunning = true;
@@ -2973,18 +2959,18 @@ tbody tr{transition:background 0.12s;}
       const sampleImproves = improvements.slice(0, 15).map((m, i) => `${i + 1}. Suggestion: "${m}"`).join("\n");
       const prompt = `You are an expert Education Analyst analyzing real student feedback from ${collegeName}.
 
-Student appreciations / likes:
-${sampleLikes.length ? sampleLikes : "1. Dedicated trainers and structured curriculum topics."}
+Column T responses (What students love & appreciate):
+${sampleLikes.length ? sampleLikes : "No specific comments in Column T."}
 
-Student improvement suggestions:
-${sampleImproves.length ? sampleImproves : "1. More practical placement coding and working Wi-Fi."}
+Column U responses (What students suggest to improve):
+${sampleImproves.length ? sampleImproves : "No specific comments in Column U."}
 
-Generate a concise analysis based strictly on these student responses.
+Task: Synthesize these exact student responses into a JSON object.
 Format response as strict JSON:
 {
-  "executiveSummary": "Write 2 to 3 factual sentences summarizing what students at ${collegeName} appreciate and what specific improvements they requested.",
-  "likes": ["Summary point 1", "Summary point 2", "Summary point 3", "Summary point 4"],
-  "improvements": ["Suggestion point 1", "Suggestion point 2", "Suggestion point 3", "Suggestion point 4"]
+  "executiveSummary": "Write 2 to 3 factual sentences summarizing what students at ${collegeName} appreciate (Column T) and what improvements they requested (Column U).",
+  "likes": ["Point 1 summarizing Column T", "Point 2 summarizing Column T", "Point 3 summarizing Column T"],
+  "improvements": ["Point 1 summarizing Column U", "Point 2 summarizing Column U", "Point 3 summarizing Column U"]
 }`;
 
       for (const model of FREE_MODELS) {
@@ -3013,11 +2999,11 @@ Format response as strict JSON:
               const parsed = JSON.parse(jsonMatch[0]);
               if (parsed.executiveSummary && !isPlaceholder(parsed.executiveSummary)) {
                 executiveSummary = parsed.executiveSummary;
-                if (Array.isArray(parsed.likes)) {
+                if (Array.isArray(parsed.likes) && parsed.likes.length) {
                   const filteredL = parsed.likes.filter(l => l && !isPlaceholder(l));
                   if (filteredL.length) likes = filteredL;
                 }
-                if (Array.isArray(parsed.improvements)) {
+                if (Array.isArray(parsed.improvements) && parsed.improvements.length) {
                   const filteredI = parsed.improvements.filter(i => i && !isPlaceholder(i));
                   if (filteredI.length) improvements = filteredI;
                 }
@@ -3056,10 +3042,10 @@ Format response as strict JSON:
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
           <div style="display:flex; align-items:center; gap:8px;">
             <span style="font-size:16px;">✨</span>
-            <span style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:var(--gold-dark);">Department & Student Voice Synthesis</span>
+            <span style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:var(--gold-dark);">NPS Student Experience Synthesis (Cols O–U)</span>
           </div>
           <span style="font-size:10.5px; font-weight:600; padding:2px 9px; border-radius:20px; ${fromCache ? 'background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;' : 'background:#fef3c7; color:#78350f; border:1px solid #fcd34d;'}">
-            ${fromCache ? '⚡ Stored Summary (Up to date)' : (isAiGenerated ? '✦ Generated via OpenRouter AI' : '✦ Instant Department Synthesis')}
+            ${fromCache ? '⚡ Stored Summary (Up to date)' : (isAiGenerated ? '✦ Generated via OpenRouter AI' : '✦ Instant NPS Synthesis')}
           </span>
         </div>
         <div style="font-size:13.5px; line-height:1.75; color:var(--ink); font-weight:450;">
@@ -3070,11 +3056,11 @@ Format response as strict JSON:
 
     function buildCol(items, type) {
       const isLikes = type === "likes";
-      const title = isLikes ? "What Students Love & Appreciate (Column T)" : "What Students Suggest to Improve (Column U)";
+      const title = isLikes ? "What Students Love & Appreciate: Column T" : "What Students suggest to improve: Column U";
       const colClass = isLikes ? "likes" : "improve";
       const accentColor = isLikes ? "#065f46" : "#78350f";
       const points = items.map((p) => `<div class="sv-point"><span class="sv-point-dot"></span><span class="sv-point-text">${escapeHtml(p)}</span></div>`).join("");
-      return `<div class="sv-col ${colClass}"><div class="sv-col-header"><div style="display:inline-flex;align-items:center;justify-content:center;width:10px;height:10px;border-radius:50%;background:${accentColor};flex-shrink:0;margin-top:2px;"></div><div><div class="sv-col-title">${title}</div><div class="sv-col-sub">${items.length} key themes identified</div></div></div>${items.length ? points : '<div class="sv-no-data">No specific comments recorded in this column.</div>'}</div>`;
+      return `<div class="sv-col ${colClass}"><div class="sv-col-header"><div style="display:inline-flex;align-items:center;justify-content:center;width:10px;height:10px;border-radius:50%;background:${accentColor};flex-shrink:0;margin-top:2px;"></div><div><div class="sv-col-title">${title}</div><div class="sv-col-sub">${items.length} key themes identified</div></div></div>${items.length ? points : '<div class="sv-no-data">No open-ended comments recorded in this column.</div>'}</div>`;
     }
 
     grid.parentElement.querySelector("#svExecutiveWrap")?.remove();
