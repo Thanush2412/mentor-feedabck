@@ -431,6 +431,10 @@ tbody tr{transition:background 0.12s;}
       <div class="mm-sw-grid" id="mmSwGrid"></div>
       <div id="mmNeutralWrap" style="margin-top:10px;"></div>
     </div>
+    <div class="mm-section" id="mmStudentVoiceSection">
+      <div class="mm-section-title">Department Student Challenges & Suggestions</div>
+      <div id="mmStudentVoiceList" style="display:flex;flex-direction:column;gap:8px;"></div>
+    </div>
     <div class="mm-section" style="border-bottom:none;">
       <div class="mm-rec-box">
         <div class="mm-rec-title">Recommendation</div>
@@ -629,6 +633,7 @@ tbody tr{transition:background 0.12s;}
         </div>
       </div>
     </div>
+    <div id="summaryStudentVoiceWrap" style="margin-top:4px;"></div>
   </div>
 
   <!-- MENTOR PERFORMANCE PANEL -->
@@ -1891,6 +1896,54 @@ tbody tr{transition:background 0.12s;}
     renderMetricCards();
     renderNPSSummary();
     renderMentorChart();
+    renderSummaryStudentVoice();
+  }
+  function renderSummaryStudentVoice() {
+    const wrap = document.getElementById("summaryStudentVoiceWrap");
+    if (!wrap) return;
+    const collegeName = state.currentCollege ? state.currentCollege.name : "College Overview";
+    const monthKey = selectedMonth || ALL_MONTHS;
+    const cacheStorageKey = `fp_sv_summary_v3_${encodeURIComponent(collegeName)}_${monthKey}`;
+    
+    let cached = null;
+    try {
+      const raw = localStorage.getItem(cacheStorageKey);
+      if (raw) cached = JSON.parse(raw);
+    } catch(e) {}
+
+    const rows = metrics?.rawRows || [];
+    if (!rows.length) {
+      wrap.innerHTML = "";
+      return;
+    }
+
+    let executiveSummary = cached?.executiveSummary;
+    if (!executiveSummary) {
+      const synth = generateSmartSynthesis(collegeName, rows.map(r => ({
+        dept: (r.department || r["Department"] || "General").trim(),
+        challenge: r.challenges_detail || r[Object.keys(r)[12]] || "",
+        suggestion: r.challenges_suggestions || r[Object.keys(r)[13]] || "",
+        like: r.nps_likes || ""
+      })), [], []);
+      executiveSummary = synth.executiveSummary;
+    }
+
+    wrap.innerHTML = `
+      <div style="background:linear-gradient(135deg, rgba(122,79,0,0.07) 0%, rgba(245,200,66,0.14) 100%); border:1.5px solid var(--accent-md); border-left:4px solid var(--gold-mid); border-radius:var(--radius); padding:16px 20px; margin-top:8px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:16px;">✨</span>
+            <span style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:var(--gold-dark);">Executive Department & Student Voice Synthesis</span>
+          </div>
+          <span style="font-size:10px; font-weight:600; padding:2px 8px; border-radius:20px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">
+            ${rows.length} Responses Analyzed
+          </span>
+        </div>
+        <div style="font-size:13px; line-height:1.7; color:var(--ink); font-weight:450;">
+          ${escapeHtml(executiveSummary).replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--gold-dark);font-weight:600;">$1</strong>')}
+        </div>
+      </div>
+    `;
   }
   function renderMetricCards() {
     const { tableData, mentors, deptList, rawRows } = metrics;
@@ -2385,6 +2438,58 @@ tbody tr{transition:background 0.12s;}
       const cs = mmClassStyle(n.cls);
       return `<span class="mm-neutral-pill" style="background:${cs.bg};color:${cs.color};border-color:${cs.border};">${n.label} <strong>${n.pct}%</strong></span>`;
     }).join("")}</div></div>` : "";
+
+    // Extract mentor-specific / relevant department challenges
+    const mentorVoiceWrap = document.getElementById("mmStudentVoiceList");
+    if (mentorVoiceWrap && metrics2?.rawRows) {
+      const deptsForMentor = new Set(deptCtx ? [deptCtx] : m.depts);
+      const mentorRows = metrics2.rawRows.filter(r => {
+        const rowDept = (r.department || r["Department"] || r["dept"] || "").trim();
+        const matchesDept = deptsForMentor.has(rowDept);
+        let taughtInRow = false;
+        for (let i = 1; i <= 9; i++) {
+          if ((r[`subject${i}_Mentor`] || "").trim().toLowerCase() === mentorName.toLowerCase()) {
+            taughtInRow = true;
+            break;
+          }
+        }
+        return matchesDept && (taughtInRow || !deptCtx);
+      });
+
+      const ignoreSet = new Set(["nil", "null", "na", "n/a", "no", "none", "nothing", "good", "all good", "fine", "everything is fine", "no issues", "no comments", "everything is good", "no challenges", ".", "-", "--", "no suggestions"]);
+      const feedbackItems = [];
+
+      mentorRows.forEach(r => {
+        const d = (r.department || r["Department"] || r["dept"] || "General").trim();
+        const mKey = Object.keys(r).find(k => /challenges_detail|challenge|issue|problem/i.test(k)) || Object.keys(r)[12];
+        const nKey = Object.keys(r).find(k => /challenges_suggestions|suggestion|recommendation|improve/i.test(k)) || Object.keys(r)[13];
+        const mVal = (mKey && r[mKey] ? String(r[mKey]).trim() : "");
+        const nVal = (nKey && r[nKey] ? String(r[nKey]).trim() : "");
+
+        const hasM = mVal && !ignoreSet.has(mVal.toLowerCase()) && mVal.length > 3;
+        const hasN = nVal && !ignoreSet.has(nVal.toLowerCase()) && nVal.length > 3;
+
+        if (hasM || hasN) {
+          feedbackItems.push({ dept: d, challenge: hasM ? mVal : "", suggestion: hasN ? nVal : "" });
+        }
+      });
+
+      if (feedbackItems.length > 0) {
+        mentorVoiceWrap.innerHTML = feedbackItems.slice(0, 5).map(f => `
+          <div style="background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.5;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+              <span style="font-weight:600;color:var(--gold-dark);font-size:11px;">Department: ${escapeHtml(f.dept)}</span>
+              <span style="font-size:10px;color:var(--ink4);">Student Feedback</span>
+            </div>
+            ${f.challenge ? `<div style="color:var(--rose);margin-bottom:3px;"><strong style="font-size:11px;">Challenge:</strong> ${escapeHtml(f.challenge)}</div>` : ''}
+            ${f.suggestion ? `<div style="color:var(--green-dark);"><strong style="font-size:11px;">Suggestion:</strong> ${escapeHtml(f.suggestion)}</div>` : ''}
+          </div>
+        `).join("");
+      } else {
+        mentorVoiceWrap.innerHTML = '<div style="font-size:12px;color:var(--ink4);font-style:italic;padding:6px 0;">No specific student challenges or suggestions recorded for this mentor\'s departments.</div>';
+      }
+    }
+
     document.getElementById("mmRecText").innerHTML = mmBuildRec(strengths, weaknesses);
     document.getElementById("mentorModalOverlay").classList.add("open");
     requestAnimationFrame(() => setTimeout(() => {
@@ -2706,49 +2811,96 @@ tbody tr{transition:background 0.12s;}
     svShow("loading");
     document.getElementById("svBadge").textContent = `${totalValidFeedback} Responses`;
     document.getElementById("svRegenBtn").style.display = "none";
-    document.getElementById("svLoadingText").textContent = `Synthesizing department feedback for ${collegeName}…`;
+    document.getElementById("svLoadingText").textContent = `Generating AI executive summary for ${collegeName}…`;
 
-    // Try Gemini API if key is valid, otherwise use instant Smart Synthesizer
     let executiveSummary, likes, improvements;
     let isAiGenerated = false;
 
-    if (GEMINI_KEY && GEMINI_KEY.startsWith("AIzaSy")) {
-      try {
-        const sampleItems = deptFeedbackMap.length > 80 ? deptFeedbackMap.sort(() => Math.random() - 0.5).slice(0, 80) : deptFeedbackMap;
-        const formattedInputs = sampleItems.map((item, idx) => {
-          let line = `${idx + 1}. [Dept: ${item.dept || "General"}]`;
-          if (item.like) line += ` | Liked: "${item.like}"`;
-          if (item.challenge) line += ` | Challenge: "${item.challenge}"`;
-          if (item.suggestion) line += ` | Suggestion: "${item.suggestion}"`;
-          return line;
-        }).join("\n");
+    var OPENROUTER_KEY = "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";
+    var FREE_MODELS = [
+      "minimax/minimax-m2.7:free",
+      "liquid/lfm-2.5-2.6b:free",
+      "nvidia/nemotron-3.5-lightning:free"
+    ];
 
-        const prompt = `Synthesize student feedback from ${collegeName} into JSON:\n${formattedInputs}\nFormat: {"executiveSummary":"2-4 sentence synthesis of what departments say","likes":["pt1","pt2"],"improvements":["pt1","pt2"]}`;
+    if (OPENROUTER_KEY) {
+      const sampleItems = deptFeedbackMap.length > 60 ? deptFeedbackMap.sort(() => Math.random() - 0.5).slice(0, 60) : deptFeedbackMap;
+      const formattedInputs = sampleItems.map((item, idx) => {
+        let line = `${idx + 1}. [Dept: ${item.dept || "General"}]`;
+        if (item.like) line += ` | Liked: "${item.like}"`;
+        if (item.challenge) line += ` | Challenge Faced: "${item.challenge}"`;
+        if (item.suggestion) line += ` | Suggestion: "${item.suggestion}"`;
+        return line;
+      }).join("\n");
 
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: "application/json", temperature: 0.3 }
-          })
-        });
+      const prompt = `You are a Senior Academic & Training Operations Analyst evaluating real student feedback from ${collegeName}.
 
-        if (response.ok) {
-          const resData = await response.json();
-          const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-          const parsed = JSON.parse(rawText.replace(/```json|```/g, "").trim());
-          executiveSummary = parsed.executiveSummary;
-          likes = parsed.likes;
-          improvements = parsed.improvements;
-          isAiGenerated = true;
+Here are actual student responses categorized by Department and Challenges/Suggestions (Columns M, N, Q6, Q7):
+${formattedInputs}
+
+Task:
+Synthesize this real feedback into a structured JSON response with exactly this format:
+{
+  "executiveSummary": "A concise 2 to 4 sentence paragraph synthesizing what specific departments from ${collegeName} are reporting (e.g., 'Department of Computer Science / BCA from ${collegeName} reports that placement preparation should emphasize hands-on coding shortcuts, while Commerce students requested extra tutorial hours for accounting. Across departments, students also highlighted classroom Wi-Fi and power plug access as essential infrastructure needs.'). Mention actual department names if present in the data.",
+  "likes": [
+    "Point 1 (15-25 words)",
+    "Point 2 (15-25 words)",
+    "Point 3 (15-25 words)",
+    "Point 4 (15-25 words)"
+  ],
+  "improvements": [
+    "Point 1 (15-25 words)",
+    "Point 2 (15-25 words)",
+    "Point 3 (15-25 words)",
+    "Point 4 (15-25 words)",
+    "Point 5 (15-25 words)"
+  ]
+}
+
+Rules:
+1. Ground everything purely on the provided student feedback.
+2. Return ONLY valid JSON, with no conversational intro or markdown code fences.`;
+
+      for (const model of FREE_MODELS) {
+        try {
+          const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${OPENROUTER_KEY}`,
+              "Content-Type": "application/json",
+              "HTTP-Referer": "https://faceprep-analytics.github.io",
+              "X-Title": "FacePrep Analytics"
+            },
+            body: JSON.stringify({
+              model: model,
+              messages: [{ role: "user", content: prompt }],
+              temperature: 0.3,
+              max_tokens: 700
+            })
+          });
+
+          if (response.ok) {
+            const resData = await response.json();
+            const rawText = resData.choices?.[0]?.message?.content || "";
+            const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              if (parsed.executiveSummary) {
+                executiveSummary = parsed.executiveSummary;
+                likes = Array.isArray(parsed.likes) ? parsed.likes : [];
+                improvements = Array.isArray(parsed.improvements) ? parsed.improvements : [];
+                isAiGenerated = true;
+                break;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn(`OpenRouter model ${model} attempt failed:`, err);
         }
-      } catch (err) {
-        console.warn("AI API fallback to smart synthesizer:", err);
       }
     }
 
-    // If AI didn't run or API key wasn't AIza, run instant Smart Synthesis Engine
+    // If AI calls failed or unavailable, use instant Smart Synthesis Engine
     if (!executiveSummary) {
       const synth = generateSmartSynthesis(collegeName, deptFeedbackMap, q6List, q7List);
       executiveSummary = synth.executiveSummary;
@@ -2778,13 +2930,14 @@ tbody tr{transition:background 0.12s;}
       q6List.length,
       q7List.length,
       false,
-      Date.now()
+      Date.now(),
+      isAiGenerated
     );
 
     svRunning = false;
   }
 
-  function renderStudentVoiceResult(executiveSummary, likes, improvements, totalCount, q6Count, q7Count, fromCache, timestamp) {
+  function renderStudentVoiceResult(executiveSummary, likes, improvements, totalCount, q6Count, q7Count, fromCache, timestamp, isAiGenerated = false) {
     const grid = document.getElementById("svGrid");
     
     // Header & Executive Summary Block
@@ -2796,7 +2949,7 @@ tbody tr{transition:background 0.12s;}
             <span style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:var(--gold-dark);">Department & Student Voice Synthesis</span>
           </div>
           <span style="font-size:10.5px; font-weight:600; padding:2px 9px; border-radius:20px; ${fromCache ? 'background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;' : 'background:#fef3c7; color:#78350f; border:1px solid #fcd34d;'}">
-            ${fromCache ? '⚡ Stored Summary (Up to date)' : '✦ Newly Generated'}
+            ${fromCache ? '⚡ Stored Summary (Up to date)' : (isAiGenerated ? '✦ Generated via OpenRouter AI' : '✦ Instant Department Synthesis')}
           </span>
         </div>
         <div style="font-size:13.5px; line-height:1.75; color:var(--ink); font-weight:450;">
@@ -2825,7 +2978,7 @@ tbody tr{transition:background 0.12s;}
     const timeStr = timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString();
     const metaEl = document.getElementById("svMeta");
     if (metaEl) {
-      metaEl.textContent = `${totalCount} student responses analyzed \xB7 ${fromCache ? 'Loaded from local cache' : 'Generated via Gemini 3.6 Flash'} at ${timeStr}`;
+      metaEl.textContent = `${totalCount} student responses analyzed \xB7 ${fromCache ? 'Loaded from local cache' : 'Live synthesis'} at ${timeStr}`;
     }
     
     document.getElementById("svRegenBtn").style.display = "inline-block";
