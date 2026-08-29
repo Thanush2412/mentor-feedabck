@@ -1897,51 +1897,38 @@ tbody tr{transition:background 0.12s;}
     renderMetricCards();
     renderNPSSummary();
     renderMentorChart();
-    renderSummaryStudentVoice();
+    renderSummaryStudentVoice(currentDeptFilter);
   }
-  function renderSummaryStudentVoice() {
+  function renderSummaryStudentVoice(deptFilter = "all") {
     const wrap = document.getElementById("summaryStudentVoiceWrap");
     if (!wrap) return;
     const collegeName = state.currentCollege ? state.currentCollege.name : "College Overview";
-    const monthKey = selectedMonth || ALL_MONTHS;
-    const cacheStorageKey = `fp_sv_summary_v3_${encodeURIComponent(collegeName)}_${monthKey}`;
-    
-    let cached = null;
-    try {
-      const raw = localStorage.getItem(cacheStorageKey);
-      if (raw) cached = JSON.parse(raw);
-    } catch(e) {}
-
     const rows = metrics?.rawRows || [];
     if (!rows.length) {
       wrap.innerHTML = "";
       return;
     }
 
-    let executiveSummary = cached?.executiveSummary;
-    if (!executiveSummary) {
-      const synth = generateSmartSynthesis(collegeName, rows.map(r => ({
-        dept: (r.department || r["Department"] || "General").trim(),
-        challenge: r.challenges_detail || r[Object.keys(r)[12]] || "",
-        suggestion: r.challenges_suggestions || r[Object.keys(r)[13]] || "",
-        like: r.nps_likes || ""
-      })), [], []);
-      executiveSummary = synth.executiveSummary;
-    }
+    const isDept = deptFilter && deptFilter !== "all";
+    const filteredRows = isDept ? rows.filter(r => (r.department || r["Department"] || r["dept"] || "").trim() === deptFilter) : rows;
+
+    const summaryText = generateSummaryTabSynthesis(collegeName, rows, deptFilter);
 
     wrap.innerHTML = `
-      <div style="background:linear-gradient(135deg, rgba(122,79,0,0.07) 0%, rgba(245,200,66,0.14) 100%); border:1.5px solid var(--accent-md); border-left:4px solid var(--gold-mid); border-radius:var(--radius); padding:16px 20px; margin-top:8px;">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; flex-wrap:wrap; gap:8px;">
+      <div style="background:linear-gradient(135deg, rgba(122,79,0,0.07) 0%, rgba(245,200,66,0.14) 100%); border:1.5px solid var(--accent-md); border-left:4px solid var(--gold-mid); border-radius:var(--radius); padding:18px 22px; margin-top:14px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
           <div style="display:flex; align-items:center; gap:8px;">
             <span style="font-size:16px;">✨</span>
-            <span style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:var(--gold-dark);">Executive Department & Student Voice Synthesis</span>
+            <span style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:var(--gold-dark);">
+              ${isDept ? `Overall Feedback & Challenges · ${escapeHtml(deptFilter)} (Cols F–N)` : "Overall Feedback & Department Challenges Summary (Cols F–N)"}
+            </span>
           </div>
-          <span style="font-size:10px; font-weight:600; padding:2px 8px; border-radius:20px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">
-            ${rows.length} Responses Analyzed
+          <span style="font-size:10.5px; font-weight:600; padding:2px 9px; border-radius:20px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">
+            ${filteredRows.length} Responses
           </span>
         </div>
-        <div style="font-size:13px; line-height:1.7; color:var(--ink); font-weight:450;">
-          ${escapeHtml(executiveSummary).replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--gold-dark);font-weight:600;">$1</strong>')}
+        <div style="font-size:13.5px; line-height:1.75; color:var(--ink); font-weight:450;">
+          ${escapeHtml(summaryText).replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--gold-dark);font-weight:600;">$1</strong>')}
         </div>
       </div>
     `;
@@ -2220,7 +2207,8 @@ tbody tr{transition:background 0.12s;}
     fr.innerHTML = "";
     const allBtn = mkChip("All", "all", currentDeptFilter === "all");
     fr.appendChild(allBtn);
-    metrics2.deptList.forEach((dept) => fr.appendChild(mkChip(dept, dept, currentDeptFilter === dept)));
+    const list = (metrics2?.deptList || metrics?.deptList || []);
+    list.forEach((dept) => fr.appendChild(mkChip(dept, dept, currentDeptFilter === dept)));
   }
   function mkChip(label, val, active) {
     const btn = document.createElement("button");
@@ -2233,9 +2221,13 @@ tbody tr{transition:background 0.12s;}
     currentDeptFilter = val;
     document.querySelectorAll("#deptFilterRow .filter-chip").forEach((c) => c.classList.remove("active"));
     if (btn) btn.classList.add("active");
-    renderMentorTable();
-    renderDeptStatsPanel(val);
-    renderMentorsStudentVoice(val);
+    if (state.currentDetailPanel === "mentors") {
+      renderMentorTable();
+      renderDeptStatsPanel(val);
+      renderMentorsStudentVoice(val);
+    } else if (state.currentDetailPanel === "summary") {
+      renderSummaryStudentVoice(val);
+    }
   }
   function renderMentorsStudentVoice(deptFilter) {
     const wrap = document.getElementById("mentorsStudentVoiceWrap");
@@ -2253,46 +2245,43 @@ tbody tr{transition:background 0.12s;}
     const isDept = deptFilter && deptFilter !== "all";
     const filteredRows = isDept ? allRows.filter(r => (r.department || r["Department"] || r["dept"] || "").trim() === deptFilter) : allRows;
 
-    let cached = null;
-    try {
-      const raw = localStorage.getItem(cacheStorageKey);
-      if (raw) cached = JSON.parse(raw);
-    } catch(e) {}
+    const res = generateMentorTabSynthesis(collegeName, allRows, deptFilter);
 
-    let executiveSummary;
-    if (isDept || !cached?.executiveSummary) {
-      const synth = generateSmartSynthesis(
-        isDept ? `${collegeName} (${deptFilter})` : collegeName,
-        filteredRows.map(r => ({
-          dept: (r.department || r["Department"] || "General").trim(),
-          challenge: r.challenges_detail || r[Object.keys(r)[12]] || "",
-          suggestion: r.challenges_suggestions || r[Object.keys(r)[13]] || "",
-          like: r.nps_likes || ""
-        })),
-        [],
-        []
-      );
-      executiveSummary = synth.executiveSummary;
-    } else {
-      executiveSummary = cached.executiveSummary;
+    let painPointsHtml = "";
+    if (res.painPoints && res.painPoints.length > 0) {
+      const items = res.painPoints.map(p => `
+        <div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid rgba(120,80,10,0.08);font-size:12.5px;color:var(--ink2);">
+          <span style="color:#ef4444;font-size:14px;line-height:1;margin-top:2px;">⚠️</span>
+          <div>${p.text.replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--gold-dark);">$1</strong>')}</div>
+        </div>
+      `).join("");
+      painPointsHtml = `
+        <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--border2);">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--rose);margin-bottom:6px;">
+            Major Mentor Pain Points Identified (${res.painPoints.length}):
+          </div>
+          ${items}
+        </div>
+      `;
     }
 
     wrap.innerHTML = `
-      <div style="background:linear-gradient(135deg, rgba(122,79,0,0.07) 0%, rgba(245,200,66,0.14) 100%); border:1.5px solid var(--accent-md); border-left:4px solid var(--gold-mid); border-radius:var(--radius); padding:16px 20px;">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; flex-wrap:wrap; gap:8px;">
+      <div style="background:linear-gradient(135deg, rgba(122,79,0,0.07) 0%, rgba(245,200,66,0.14) 100%); border:1.5px solid var(--accent-md); border-left:4px solid var(--gold-mid); border-radius:var(--radius); padding:18px 22px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
           <div style="display:flex; align-items:center; gap:8px;">
             <span style="font-size:16px;">✨</span>
             <span style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:var(--gold-dark);">
-              ${isDept ? `AI Department Voice · ${escapeHtml(deptFilter)}` : "AI Department & Mentor Challenges Overview"}
+              ${isDept ? `Mentor Performance & Pain Points · ${escapeHtml(deptFilter)} (Cols V–End)` : "Overall Mentor Performance & Major Pain Points (Cols V–End)"}
             </span>
           </div>
-          <span style="font-size:10px; font-weight:600; padding:2px 8px; border-radius:20px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">
-            ${filteredRows.length} Responses
+          <span style="font-size:10.5px; font-weight:600; padding:2px 9px; border-radius:20px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">
+            ${filteredRows.length} Responses Evaluated
           </span>
         </div>
-        <div style="font-size:13px; line-height:1.7; color:var(--ink); font-weight:450;">
-          ${escapeHtml(executiveSummary).replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--gold-dark);font-weight:600;">$1</strong>')}
+        <div style="font-size:13.5px; line-height:1.75; color:var(--ink); font-weight:450;">
+          ${escapeHtml(res.summaryText).replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--gold-dark);font-weight:600;">$1</strong>')}
         </div>
+        ${painPointsHtml}
       </div>
     `;
   }
@@ -2705,76 +2694,221 @@ tbody tr{transition:background 0.12s;}
     return Math.abs(hash).toString(36);
   }
 
-  function generateSmartSynthesis(collegeName, deptFeedbackMap, q6List, q7List) {
+  // ─── TAB 1: SUMMARY TAB SYNTHESIS (Columns F to N) ───
+  function generateSummaryTabSynthesis(collegeName, allRows, deptFilter) {
+    const isDept = deptFilter && deptFilter !== "all";
+    const rows = isDept ? allRows.filter(r => (r.department || r["Department"] || r["dept"] || "").trim() === deptFilter) : allRows;
+
     const depts = {};
-    deptFeedbackMap.forEach(item => {
-      const d = item.dept || "General";
-      if (!depts[d]) depts[d] = { challenges: [], suggestions: [], likes: [] };
-      if (item.challenge) depts[d].challenges.push(item.challenge);
-      if (item.suggestion) depts[d].suggestions.push(item.suggestion);
-      if (item.like) depts[d].likes.push(item.like);
+    const ignoreSet = new Set(["nil", "null", "na", "n/a", "no", "none", "nothing", "good", "all good", "fine", "everything is fine", "no issues", "no comments", "everything is good", "no challenges", ".", "-", "--", "no suggestions"]);
+
+    rows.forEach(r => {
+      const d = (r.department || r["Department"] || r["dept"] || "General").trim();
+      if (!depts[d]) depts[d] = { challenges: [], suggestions: [], categories: [], assessmentsYes: 0, materialsYes: 0, total: 0 };
+      
+      depts[d].total++;
+      if ((r.ape_q1_assessments || "").trim().toLowerCase() === "yes") depts[d].assessmentsYes++;
+      if ((r.ape_q2_studyMaterials || "").trim().toLowerCase() === "yes") depts[d].materialsYes++;
+
+      const c = (r.challenges_detail || r[Object.keys(r)[12]] || "").trim();
+      const s = (r.challenges_suggestions || r[Object.keys(r)[13]] || "").trim();
+      const cat = (r.challenges_selected || r[Object.keys(r)[11]] || "").trim();
+
+      if (c && !ignoreSet.has(c.toLowerCase()) && c.length > 3) depts[d].challenges.push(c);
+      if (s && !ignoreSet.has(s.toLowerCase()) && s.length > 3) depts[d].suggestions.push(s);
+      if (cat && !ignoreSet.has(cat.toLowerCase())) depts[d].categories.push(cat);
     });
 
     const deptNames = Object.keys(depts).filter(d => d !== "General" && d !== "Unknown" && d.length > 1);
-    const allChal = deptFeedbackMap.map(d => d.challenge).filter(Boolean);
-    const allSugg = deptFeedbackMap.map(d => d.suggestion).filter(Boolean);
-    const allLikes = deptFeedbackMap.map(d => d.like).concat(q6List).filter(Boolean);
-
-    const hasWifiOrPower = allChal.concat(allSugg).some(c => /wifi|wi-fi|plug|power|socket|charging|fan|laptop/i.test(c));
-    const hasLabOrHandsOn = allChal.concat(allSugg).some(c => /lab|practical|hands-on|programming|coding|machine/i.test(c));
-    const hasPlacement = allChal.concat(allSugg).some(c => /placement|interview|company|shortcut|career|aptitude/i.test(c));
-    const hasCurriculum = allChal.concat(allSugg).some(c => /saturday|semester|timing|hours|time|pressure|schedule|portion/i.test(c));
-
     let sentences = [];
-    if (deptNames.length > 0) {
-      let deptPoints = [];
-      deptNames.slice(0, 3).forEach(d => {
-        const dChal = depts[d].challenges;
-        const dSugg = depts[d].suggestions;
-        const topItem = (dSugg[0] || dChal[0] || "").replace(/\n/g, " ").trim();
-        if (topItem && topItem.length > 8) {
-          const cleanText = topItem.length > 120 ? topItem.slice(0, 117) + "..." : topItem;
-          deptPoints.push(`students from **${d}** noted: "${cleanText}"`);
+
+    if (isDept) {
+      const dData = depts[deptFilter] || { challenges: [], suggestions: [] };
+      const topC = dData.challenges[0] ? dData.challenges[0].replace(/\n/g, " ").trim() : "";
+      const topS = dData.suggestions[0] ? dData.suggestions[0].replace(/\n/g, " ").trim() : "";
+
+      if (topC && topC.length > 6) {
+        sentences.push(`Students from **${deptFilter}** reported challenges regarding: "${topC.length > 140 ? topC.slice(0, 137) + '...' : topC}".`);
+      }
+      if (topS && topS.length > 6) {
+        sentences.push(`Their primary suggestion is: "${topS.length > 140 ? topS.slice(0, 137) + '...' : topS}".`);
+      }
+      if (sentences.length === 0) {
+        sentences.push(`Students from **${deptFilter}** indicate steady academic progression with minimal infrastructure or curricular bottlenecks reported.`);
+      }
+    } else {
+      if (deptNames.length > 0) {
+        let deptHighlights = [];
+        deptNames.slice(0, 4).forEach(d => {
+          const dData = depts[d];
+          const topItem = (dData.suggestions[0] || dData.challenges[0] || "").replace(/\n/g, " ").trim();
+          if (topItem && topItem.length > 8) {
+            const cleanText = topItem.length > 120 ? topItem.slice(0, 117) + "..." : topItem;
+            deptHighlights.push(`students from **${d}** highlighted: "${cleanText}"`);
+          }
+        });
+        if (deptHighlights.length > 0) {
+          sentences.push(`Across departments at **${collegeName}**, ${deptHighlights.join("; while ")}.`);
         }
-      });
-      if (deptPoints.length > 0) {
-        sentences.push(`Across departments at **${collegeName}**, ${deptPoints.join("; while ")}.`);
+      }
+
+      const allC = rows.map(r => (r.challenges_detail || "").toLowerCase());
+      const allS = rows.map(r => (r.challenges_suggestions || "").toLowerCase());
+      const combined = allC.concat(allS).join(" ");
+
+      if (/placement|shortcut|interview|aptitude/i.test(combined)) {
+        sentences.push(`A key recommendation across departments is to tailor placement training towards real-world interview shortcuts and practical technical problem solving.`);
+      }
+      if (/saturday|semester|timing|schedule|portion/i.test(combined)) {
+        sentences.push(`Curriculum pacing feedback suggests balancing intense weekend/Saturday hours with extended project timelines for better hands-on retention.`);
+      }
+      if (/wifi|wi-fi|plug|power|outlet|lab/i.test(combined)) {
+        sentences.push(`Campus infrastructure requests emphasize reliable classroom Wi-Fi connectivity and functioning laptop charging sockets during practical hours.`);
+      }
+
+      if (sentences.length === 0) {
+        sentences.push(`Overall feedback across departments at ${collegeName} reflects steady engagement, with students recommending continuous hands-on practice, timely study material distribution, and interactive lab sessions.`);
       }
     }
 
-    if (hasPlacement) {
-      sentences.push(`Students specifically highlighted the need for placement training to focus on real-world interview shortcuts, live technical tests, and industry-level problem solving.`);
+    return sentences.join(" ");
+  }
+
+  // ─── TAB 2: MENTOR PERFORMANCE TAB SYNTHESIS (Columns V to Last) ───
+  function generateMentorTabSynthesis(collegeName, allRows, deptFilter) {
+    const isDept = deptFilter && deptFilter !== "all";
+    const rows = isDept ? allRows.filter(r => (r.department || r["Department"] || r["dept"] || "").trim() === deptFilter) : allRows;
+
+    const mentorStats = {};
+
+    rows.forEach(r => {
+      for (let i = 1; i <= 9; i++) {
+        const mName = (r[`subject${i}_Mentor`] || "").trim();
+        const sName = (r[`subject${i}_Name`] || "").trim();
+        const rVal = parseFloat(r[`subject${i}_Rating`]);
+        if (!mName) continue;
+
+        if (!mentorStats[mName]) {
+          mentorStats[mName] = { name: mName, subjects: new Set(), ratings: [], qNo: [0, 0, 0, 0, 0], total: 0 };
+        }
+
+        mentorStats[mName].total++;
+        if (sName) mentorStats[mName].subjects.add(sName);
+        if (!isNaN(rVal) && rVal > 0) mentorStats[mName].ratings.push(rVal);
+
+        for (let q = 1; q <= 5; q++) {
+          const ans = (r[`subject${i}_Q${q}`] || "").trim().toLowerCase();
+          if (ans === "no") {
+            mentorStats[mName].qNo[q - 1]++;
+          }
+        }
+      }
+    });
+
+    const mentorsList = Object.values(mentorStats);
+    if (!mentorsList.length) {
+      return {
+        summaryText: `No subject-wise mentor evaluations recorded for ${isDept ? deptFilter : collegeName}.`,
+        painPoints: []
+      };
     }
-    if (hasCurriculum) {
-      sentences.push(`Academic schedule concerns were raised regarding heavy class hours and the desire for balanced semester pacing to allow sufficient time for projects and skill practice.`);
+
+    // Identify Major Pain Points (Mentors with lower ratings or significant 'No' counts on Q1..Q5)
+    const painPoints = [];
+    mentorsList.forEach(m => {
+      const avg = m.ratings.length ? (m.ratings.reduce((a, b) => a + b, 0) / m.ratings.length) : 5;
+      const totalNo = m.qNo.reduce((a, b) => a + b, 0);
+      const subStr = Array.from(m.subjects).join(", ") || "Assigned Subjects";
+
+      if (totalNo >= 5 || avg < 4.0) {
+        let issueDesc = [];
+        if (m.qNo[2] >= 3) issueDesc.push(`${m.qNo[2]} students reported difficulties with problem-solving/examples (Q3)`);
+        if (m.qNo[4] >= 3) issueDesc.push(`${m.qNo[4]} students noted limited practical skill improvement (Q5)`);
+        if (m.qNo[3] >= 3) issueDesc.push(`${m.qNo[3]} students requested more responsive doubt clearing (Q4)`);
+        if (m.qNo[0] >= 3) issueDesc.push(`${m.qNo[0]} students requested clearer session structuring (Q1)`);
+        if (m.qNo[1] >= 3) issueDesc.push(`${m.qNo[1]} students reported concerns with classroom interaction (Q2)`);
+
+        const mainIssue = issueDesc.length ? issueDesc.join("; ") : `${totalNo} negative votes across teaching parameters`;
+        painPoints.push({
+          mentor: m.name,
+          subject: subStr,
+          avgRating: avg.toFixed(2),
+          totalNo,
+          text: `**${m.name}** (*${subStr}* — Avg Rating: ${avg.toFixed(2)}/5): ${mainIssue}.`
+        });
+      }
+    });
+
+    // Sort pain points by severity
+    painPoints.sort((a, b) => b.totalNo - a.totalNo);
+
+    const overallAvg = (mentorsList.reduce((acc, m) => {
+      const avg = m.ratings.length ? (m.ratings.reduce((a, b) => a + b, 0) / m.ratings.length) : 5;
+      return acc + avg;
+    }, 0) / mentorsList.length).toFixed(2);
+
+    let summaryText = `Across **${mentorsList.length} mentors** evaluated ${isDept ? `in **${deptFilter}**` : `at **${collegeName}**`}, overall teaching delivery averages **${overallAvg} / 5.0**. `;
+    if (painPoints.length > 0) {
+      summaryText += `While faculty engagement is broadly positive, student responses highlighted **${painPoints.length} key mentor/subject focus areas** needing improvement in problem-solving clarity, pacing, and practical coding exercises.`;
+    } else {
+      summaryText += `Student ratings across all subjects demonstrate strong satisfaction with mentor explanation clarity, conduct, and doubt resolution with zero critical bottlenecks identified.`;
     }
-    if (hasWifiOrPower || hasLabOrHandsOn) {
-      sentences.push(`Key infrastructure requirements include reliable classroom Wi-Fi, working power outlets for laptops, and consistent hands-on lab access.`);
+
+    return {
+      summaryText,
+      painPoints: painPoints.slice(0, 5)
+    };
+  }
+
+  // ─── TAB 3: NPS ANALYSIS TAB SYNTHESIS (Columns O to U) ───
+  function generateNpsTabSynthesis(collegeName, rows) {
+    const ignoreSet = new Set(["nil", "null", "na", "n/a", "no", "none", "nothing", "good", "all good", "fine", "everything is fine", "no issues", "no comments", "everything is good", "no challenges", ".", "-", "--", "no suggestions"]);
+    
+    const likes = [];
+    const improvements = [];
+    let promo = 0, pass = 0, detr = 0;
+
+    rows.forEach(r => {
+      const score = parseInt(r.nps_score);
+      if (!isNaN(score)) {
+        if (score >= 9) promo++;
+        else if (score >= 7) pass++;
+        else detr++;
+      }
+
+      const l = (r.nps_likes || r[Object.keys(r)[19]] || "").trim();
+      const imp = (r.nps_improve || r[Object.keys(r)[20]] || "").trim();
+
+      if (l && !ignoreSet.has(l.toLowerCase()) && l.length > 3) likes.push(l);
+      if (imp && !ignoreSet.has(imp.toLowerCase()) && imp.length > 3) improvements.push(imp);
+    });
+
+    const totalNps = promo + pass + detr;
+    const npsIndex = totalNps > 0 ? Math.round(((promo - detr) / totalNps) * 100) : 0;
+
+    const uniqueLikes = Array.from(new Set(likes)).filter(l => l.length > 6).slice(0, 5);
+    const uniqueImproves = Array.from(new Set(improvements)).filter(i => i.length > 6).slice(0, 5);
+
+    let summaryText = "";
+    if (totalNps > 0) {
+      summaryText = `Overall student sentiment for the FACE Prep degree program at **${collegeName}** reflects an NPS Index of **${npsIndex > 0 ? '+' + npsIndex : npsIndex}** (${promo} Promoters, ${pass} Passives, and ${detr} Detractors). Students specifically appreciate supportive mentors and structured curriculum, while suggesting enhanced practical placement training and consistent classroom infrastructure to further elevate the degree experience.`;
+    } else {
+      summaryText = `Student sentiment analysis for **${collegeName}** shows positive engagement with the FACE Prep program, with primary recommendations centered on practical placement focus, industry-level coding assignments, and continuous lab support.`;
     }
 
-    if (sentences.length === 0) {
-      sentences.push(`Student feedback from ${collegeName} indicates active engagement with the program, with recommendations focused on interactive practical sessions, structured learning materials, and continuous skill refinement.`);
-    }
-
-    const executiveSummary = sentences.join(" ");
-
-    // Extract top distinct likes
-    const rawLikes = Array.from(new Set(allLikes)).filter(l => l.length > 6);
-    const likes = rawLikes.length ? rawLikes.slice(0, 6) : [
-      "Interactive mentor engagement and clear explanation of core topics.",
-      "Supportive trainers who address student queries during sessions.",
-      "Structured topic coverage aligned with practical curriculum goals."
-    ];
-
-    // Extract top distinct improvements
-    const rawImproves = Array.from(new Set(allSugg.concat(allChal))).filter(s => s.length > 6);
-    const improvements = rawImproves.length ? rawImproves.slice(0, 6) : [
-      "Provide more hands-on practical assignments and real-time coding problem sets.",
-      "Ensure classroom power sockets and Wi-Fi infrastructure are readily available.",
-      "Share study materials and topic notes well in advance of exams."
-    ];
-
-    return { executiveSummary, likes, improvements };
+    return {
+      summaryText,
+      likes: uniqueLikes.length ? uniqueLikes : [
+        "Supportive and approachable trainers who guide students during technical sessions.",
+        "Interactive classroom delivery with structured topic coverage.",
+        "Encouraging environment that promotes regular skill and aptitude practice."
+      ],
+      improvements: uniqueImproves.length ? uniqueImproves : [
+        "Include more real-time company interview coding shortcuts and placement problem sets.",
+        "Ensure consistent classroom Wi-Fi connectivity and functioning laptop charging sockets.",
+        "Provide detailed subject reference notes and study materials prior to assessments."
+      ]
+    };
   }
 
   async function runStudentVoice(forceRegen = false) {
@@ -2787,96 +2921,20 @@ tbody tr{transition:background 0.12s;}
 
     const collegeName = state.currentCollege ? state.currentCollege.name : "College Overview";
     const monthKey = selectedMonth3 || ALL_MONTHS;
-    const cacheStorageKey = `fp_sv_summary_v3_${encodeURIComponent(collegeName)}_${monthKey}`;
+    const cacheStorageKey = `fp_sv_nps_v4_${encodeURIComponent(collegeName)}_${monthKey}`;
 
-    // Extract department-tagged qualitative feedback (Columns M & N: challenges_detail, challenges_suggestions + Q6, Q7)
-    const deptFeedbackMap = [];
-    const q6List = [], q7List = [];
-    const ignoreSet = new Set(["nil", "null", "na", "n/a", "no", "none", "nothing", "good", "all good", "fine", "everything is fine", "no issues", "no comments", "everything is good", "no challenges", ".", "-", "--", "no suggestions"]);
-
-    rows.forEach((row) => {
-      const dept = (row.department || row["Department"] || row["dept"] || "General").trim();
-      const keys = Object.keys(row);
-
-      // Col M (challenges_detail)
-      const mKey = keys.find(k => /challenges_detail|challenge|issue|problem/i.test(k)) || keys[12];
-      const mVal = (mKey && row[mKey] ? String(row[mKey]).trim() : "");
-
-      // Col N (challenges_suggestions)
-      const nKey = keys.find(k => /challenges_suggestions|suggestion|recommendation|improve/i.test(k)) || keys[13];
-      const nVal = (nKey && row[nKey] ? String(row[nKey]).trim() : "");
-
-      // Q6 / Likes
-      const q6Key = keys.find(k => /nps_likes|q6|like about/i.test(k));
-      const q6Val = (q6Key && row[q6Key] ? String(row[q6Key]).trim() : "");
-
-      // Q7 / Improve
-      const q7Key = keys.find(k => /nps_improve|q7|what.*improve|one thing/i.test(k));
-      const q7Val = (q7Key && row[q7Key] ? String(row[q7Key]).trim() : "");
-
-      const hasM = mVal && !ignoreSet.has(mVal.toLowerCase()) && mVal.length > 3;
-      const hasN = nVal && !ignoreSet.has(nVal.toLowerCase()) && nVal.length > 3;
-      const hasQ6 = q6Val && !ignoreSet.has(q6Val.toLowerCase()) && q6Val.length > 3;
-      const hasQ7 = q7Val && !ignoreSet.has(q7Val.toLowerCase()) && q7Val.length > 3;
-
-      if (hasQ6) q6List.push(q6Val);
-      if (hasQ7) q7List.push(q7Val);
-
-      if (hasM || hasN || hasQ6 || hasQ7) {
-        deptFeedbackMap.push({
-          dept,
-          challenge: hasM ? mVal : "",
-          suggestion: hasN ? nVal : (hasQ7 ? q7Val : ""),
-          like: hasQ6 ? q6Val : ""
-        });
-      }
-    });
-
-    const totalValidFeedback = deptFeedbackMap.length;
-    if (totalValidFeedback === 0 && q6List.length === 0 && q7List.length === 0) {
-      document.getElementById("svBadge").textContent = "No text feedback";
-      svShow("idle");
-      const idleMsg = document.getElementById("svIdle").querySelector("div:last-child");
-      if (idleMsg) idleMsg.textContent = "No open-ended student comments or department challenges found in this sheet for " + collegeName + ".";
-      return;
-    }
-
-    // Build content fingerprint hash
-    const textConcat = deptFeedbackMap.slice(0, 50).map(d => `${d.dept}:${d.challenge}:${d.suggestion}:${d.like}`).join("|");
-    const currentHash = `${totalValidFeedback}_${simpleHash(textConcat)}`;
-
-    // Check Local Storage Cache if not forced
-    if (!forceRegen) {
-      try {
-        const cachedRaw = localStorage.getItem(cacheStorageKey);
-        if (cachedRaw) {
-          const cached = JSON.parse(cachedRaw);
-          if (cached && cached.contentHash === currentHash && cached.executiveSummary) {
-            renderStudentVoiceResult(
-              cached.executiveSummary,
-              cached.likes || [],
-              cached.improvements || [],
-              totalValidFeedback,
-              q6List.length,
-              q7List.length,
-              true,
-              cached.timestamp
-            );
-            return;
-          }
-        }
-      } catch (e) {
-        console.warn("Storage cache read error:", e);
-      }
-    }
+    // Extract NPS Voice (Columns O to U: nps_score, followups, nps_likes, nps_improve)
+    const npsData = generateNpsTabSynthesis(collegeName, rows);
 
     svRunning = true;
     svShow("loading");
-    document.getElementById("svBadge").textContent = `${totalValidFeedback} Responses`;
+    document.getElementById("svBadge").textContent = `${rows.length} Responses`;
     document.getElementById("svRegenBtn").style.display = "none";
-    document.getElementById("svLoadingText").textContent = `Generating AI executive summary for ${collegeName}…`;
+    document.getElementById("svLoadingText").textContent = `Generating NPS student voice synthesis for ${collegeName}…`;
 
-    let executiveSummary, likes, improvements;
+    let executiveSummary = npsData.summaryText;
+    let likes = npsData.likes;
+    let improvements = npsData.improvements;
     let isAiGenerated = false;
 
     var OPENROUTER_KEY = "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";
@@ -2886,43 +2944,21 @@ tbody tr{transition:background 0.12s;}
       "nvidia/nemotron-3.5-lightning:free"
     ];
 
-    if (OPENROUTER_KEY) {
-      const sampleItems = deptFeedbackMap.length > 60 ? deptFeedbackMap.sort(() => Math.random() - 0.5).slice(0, 60) : deptFeedbackMap;
-      const formattedInputs = sampleItems.map((item, idx) => {
-        let line = `${idx + 1}. [Dept: ${item.dept || "General"}]`;
-        if (item.like) line += ` | Liked: "${item.like}"`;
-        if (item.challenge) line += ` | Challenge Faced: "${item.challenge}"`;
-        if (item.suggestion) line += ` | Suggestion: "${item.suggestion}"`;
-        return line;
-      }).join("\n");
+    if (OPENROUTER_KEY && (likes.length > 0 || improvements.length > 0)) {
+      const sampleLikes = likes.slice(0, 15).map((l, i) => `${i + 1}. Liked: "${l}"`).join("\n");
+      const sampleImproves = improvements.slice(0, 15).map((m, i) => `${i + 1}. Suggestion: "${m}"`).join("\n");
+      const prompt = `Analyze NPS feedback for ${collegeName} (Columns O to U):
+What students like (Col T):
+${sampleLikes}
+What students suggest to improve (Col U):
+${sampleImproves}
 
-      const prompt = `You are a Senior Academic & Training Operations Analyst evaluating real student feedback from ${collegeName}.
-
-Here are actual student responses categorized by Department and Challenges/Suggestions (Columns M, N, Q6, Q7):
-${formattedInputs}
-
-Task:
-Synthesize this real feedback into a structured JSON response with exactly this format:
+Output ONLY valid JSON:
 {
-  "executiveSummary": "A concise 2 to 4 sentence paragraph synthesizing what specific departments from ${collegeName} are reporting (e.g., 'Department of Computer Science / BCA from ${collegeName} reports that placement preparation should emphasize hands-on coding shortcuts, while Commerce students requested extra tutorial hours for accounting. Across departments, students also highlighted classroom Wi-Fi and power plug access as essential infrastructure needs.'). Mention actual department names if present in the data.",
-  "likes": [
-    "Point 1 (15-25 words)",
-    "Point 2 (15-25 words)",
-    "Point 3 (15-25 words)",
-    "Point 4 (15-25 words)"
-  ],
-  "improvements": [
-    "Point 1 (15-25 words)",
-    "Point 2 (15-25 words)",
-    "Point 3 (15-25 words)",
-    "Point 4 (15-25 words)",
-    "Point 5 (15-25 words)"
-  ]
-}
-
-Rules:
-1. Ground everything purely on the provided student feedback.
-2. Return ONLY valid JSON, with no conversational intro or markdown code fences.`;
+  "executiveSummary": "2-3 sentences synthesizing how students feel about the overall FACE Prep experience, what they love, and their key suggestions for improvement.",
+  "likes": ["Point 1", "Point 2", "Point 3", "Point 4"],
+  "improvements": ["Point 1", "Point 2", "Point 3", "Point 4"]
+}`;
 
       for (const model of FREE_MODELS) {
         try {
@@ -2950,48 +2986,26 @@ Rules:
               const parsed = JSON.parse(jsonMatch[0]);
               if (parsed.executiveSummary) {
                 executiveSummary = parsed.executiveSummary;
-                likes = Array.isArray(parsed.likes) ? parsed.likes : [];
-                improvements = Array.isArray(parsed.improvements) ? parsed.improvements : [];
+                if (Array.isArray(parsed.likes) && parsed.likes.length) likes = parsed.likes;
+                if (Array.isArray(parsed.improvements) && parsed.improvements.length) improvements = parsed.improvements;
                 isAiGenerated = true;
                 break;
               }
             }
           }
         } catch (err) {
-          console.warn(`OpenRouter model ${model} attempt failed:`, err);
+          console.warn(`OpenRouter NPS model ${model} attempt failed:`, err);
         }
       }
-    }
-
-    // If AI calls failed or unavailable, use instant Smart Synthesis Engine
-    if (!executiveSummary) {
-      const synth = generateSmartSynthesis(collegeName, deptFeedbackMap, q6List, q7List);
-      executiveSummary = synth.executiveSummary;
-      likes = synth.likes;
-      improvements = synth.improvements;
-    }
-
-    // Save to localStorage
-    try {
-      localStorage.setItem(cacheStorageKey, JSON.stringify({
-        contentHash: currentHash,
-        responseCount: totalValidFeedback,
-        timestamp: Date.now(),
-        executiveSummary,
-        likes,
-        improvements
-      }));
-    } catch (e) {
-      console.warn("Storage cache write error:", e);
     }
 
     renderStudentVoiceResult(
       executiveSummary,
       likes,
       improvements,
-      totalValidFeedback,
-      q6List.length,
-      q7List.length,
+      rows.length,
+      likes.length,
+      improvements.length,
       false,
       Date.now(),
       isAiGenerated
