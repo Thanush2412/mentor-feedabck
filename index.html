@@ -1881,6 +1881,7 @@ tbody tr{transition:background 0.12s;}
     try {
       metrics = await getMetricsFor(selectedMonth, college);
       renderKey = key;
+      updateDeptFilters();
       render();
       getHitRatioForMonth(college.name, selectedMonth).then((hr) => setHitRatio(hr, metrics));
     } catch (e) {
@@ -3315,7 +3316,7 @@ Output ONLY valid JSON:
     document.getElementById("pageTitle").textContent = meta[id][1];
     document.getElementById("pageSub").textContent = state.currentCollege ? `${state.currentCollege.name} \xB7 ${monthLabel(getActiveTabMonthLabelFallback(id))}` : "\u2014";
     document.querySelector(".page-header").style.display = id === "trends" ? "none" : "flex";
-    document.getElementById("deptFilterRow").style.visibility = id === "mentors" ? "visible" : "hidden";
+    document.getElementById("deptFilterRow").style.visibility = (id === "mentors" || id === "summary") ? "visible" : "hidden";
     closeMobileSidebar();
     (TAB_ACTIVATORS[id] || (() => {
     }))();
