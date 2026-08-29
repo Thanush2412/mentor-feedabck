@@ -639,6 +639,7 @@ tbody tr{transition:background 0.12s;}
   <!-- MENTOR PERFORMANCE PANEL -->
   <div class="panel" id="panel-mentors">
     <div id="mentorsMonthFilter"></div><div class="tab-loading" id="mentorsLoading" style="display:none;"><span class="mini-spinner"></span> Loading data…</div>
+    <div id="mentorsStudentVoiceWrap" style="margin-bottom:14px;"></div>
     <div id="mentorGlobalSummaryBar" class="card" style="padding:0;overflow:hidden;">
       <div id="mentorTableSummaryBar" style="display:flex;align-items:center;gap:24px;padding:14px 22px;background:linear-gradient(135deg,#4a2800,#7a4f00);flex-wrap:wrap;">
         <div style="color:#fde9a0;font-size:12px;"><span style="opacity:0.6;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;display:block;margin-bottom:2px;">Global Mean</span><span id="mtSumGlobalMean" style="font-family:'DM Serif Display',Georgia,serif;font-size:18px;">—</span></div>
@@ -2192,6 +2193,7 @@ tbody tr{transition:background 0.12s;}
     if (!force && key === renderKey2 && metrics2) {
       renderMentorTable();
       renderDeptStatsPanel(currentDeptFilter);
+      renderMentorsStudentVoice(currentDeptFilter);
       return;
     }
     showLoading2(true);
@@ -2201,6 +2203,7 @@ tbody tr{transition:background 0.12s;}
       updateDeptFilters();
       renderMentorTable();
       renderDeptStatsPanel(currentDeptFilter);
+      renderMentorsStudentVoice(currentDeptFilter);
     } catch (e) {
       console.error("Mentors load failed:", e);
     } finally {
@@ -2232,6 +2235,66 @@ tbody tr{transition:background 0.12s;}
     if (btn) btn.classList.add("active");
     renderMentorTable();
     renderDeptStatsPanel(val);
+    renderMentorsStudentVoice(val);
+  }
+  function renderMentorsStudentVoice(deptFilter) {
+    const wrap = document.getElementById("mentorsStudentVoiceWrap");
+    if (!wrap) return;
+    const collegeName = state.currentCollege ? state.currentCollege.name : "College Overview";
+    const monthKey = selectedMonth2 || ALL_MONTHS;
+    const cacheStorageKey = `fp_sv_summary_v3_${encodeURIComponent(collegeName)}_${monthKey}`;
+
+    const allRows = metrics2?.rawRows || [];
+    if (!allRows.length) {
+      wrap.innerHTML = "";
+      return;
+    }
+
+    const isDept = deptFilter && deptFilter !== "all";
+    const filteredRows = isDept ? allRows.filter(r => (r.department || r["Department"] || r["dept"] || "").trim() === deptFilter) : allRows;
+
+    let cached = null;
+    try {
+      const raw = localStorage.getItem(cacheStorageKey);
+      if (raw) cached = JSON.parse(raw);
+    } catch(e) {}
+
+    let executiveSummary;
+    if (isDept || !cached?.executiveSummary) {
+      const synth = generateSmartSynthesis(
+        isDept ? `${collegeName} (${deptFilter})` : collegeName,
+        filteredRows.map(r => ({
+          dept: (r.department || r["Department"] || "General").trim(),
+          challenge: r.challenges_detail || r[Object.keys(r)[12]] || "",
+          suggestion: r.challenges_suggestions || r[Object.keys(r)[13]] || "",
+          like: r.nps_likes || ""
+        })),
+        [],
+        []
+      );
+      executiveSummary = synth.executiveSummary;
+    } else {
+      executiveSummary = cached.executiveSummary;
+    }
+
+    wrap.innerHTML = `
+      <div style="background:linear-gradient(135deg, rgba(122,79,0,0.07) 0%, rgba(245,200,66,0.14) 100%); border:1.5px solid var(--accent-md); border-left:4px solid var(--gold-mid); border-radius:var(--radius); padding:16px 20px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:16px;">✨</span>
+            <span style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:var(--gold-dark);">
+              ${isDept ? `AI Department Voice · ${escapeHtml(deptFilter)}` : "AI Department & Mentor Challenges Overview"}
+            </span>
+          </div>
+          <span style="font-size:10px; font-weight:600; padding:2px 8px; border-radius:20px; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;">
+            ${filteredRows.length} Responses
+          </span>
+        </div>
+        <div style="font-size:13px; line-height:1.7; color:var(--ink); font-weight:450;">
+          ${escapeHtml(executiveSummary).replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--gold-dark);font-weight:600;">$1</strong>')}
+        </div>
+      </div>
+    `;
   }
   function renderMentorTable() {
     const mentors = metrics2.mentors;
